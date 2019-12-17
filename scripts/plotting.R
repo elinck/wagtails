@@ -1,3 +1,5 @@
+# plots for semenov et al. in prep
+
 library(data.table)
 library(magrittr)
 library(dplyr)
@@ -11,7 +13,7 @@ library(cowplot)
 setwd("~/Dropbox/wagtails/")
 
 # summarize mummer output
-files <- list.files("mumer_YW_coord",full.names = T)
+files <- list.files("data/mumer_YW_coord",full.names = T)
 files <- files[grepl("\\.coords",files)]
 i <- 1
 for(f in files){
@@ -57,7 +59,7 @@ chr_order <- c("1","1A","2","3","4","4A",as.character(5:15),
                as.character(17:28),"LGE22","LG34","Z","NA")
 
 # read in fst data, sympatric pops
-sym.fst <- fread("sympatric.parental.windowed.weir.fst")
+sym.fst <- fread("data/sympatric.parental.windowed.weir.fst")
 sym.fst <- sym.fst[sym.fst$N_VARIANTS>150,]
 sym.fst$comparison <- rep("sympatric", nrow(sym.fst))
 sym.fst$outlier <- sym.fst$WEIGHTED_FST>=quantile(sym.fst$WEIGHTED_FST,0.995, na.rm = TRUE)
@@ -65,7 +67,7 @@ quantile(sym.fst$WEIGHTED_FST,0.995, na.rm = TRUE) #0.04650244
 sym.fst$ID <- paste0(sym.fst$CHROM,"_",sym.fst$BIN_START)
 
 # read in fst data, allopatric pops
-allo.fst <- fread("allopatric.parental.windowed.weir.fst")
+allo.fst <- fread("data/allopatric.parental.windowed.weir.fst")
 allo.fst <- allo.fst[allo.fst$N_VARIANTS>150,]
 allo.fst$comparison <- rep("allopatric", nrow(allo.fst))
 allo.fst$outlier <- allo.fst$WEIGHTED_FST>=quantile(allo.fst$WEIGHTED_FST,0.995, na.rm = TRUE)
@@ -132,8 +134,11 @@ p1 <- ggplot(data=win.df,aes(x=row,y=weighted_fst,col=chr))+
         legend.position="none")+
   scale_y_continuous(breaks=c(0,.25,.5,.75,1))+
   scale_color_manual(values=rep(c("#2b2a27","#a6a5a2"),length(unique(win.df$chr))/2+1))+
-  geom_point(data=subset(win.df, weighted_fst>0), size=1,shape=21,alpha=0.8)+
+  geom_point(data=subset(win.df, weighted_fst>0), size=1.1,shape=21)+
+  #geom_point(data=subset(win.df, outlier="TRUE"),size=1.2,shape=21,col="red")+
   geom_line(aes(y=rollmean),lwd=0.5,col="black")+
+  #geom_segment(data=chr_segments,aes(x=start+50,xend=stop-50,y=Fst,yend=Fst,col=NA),col="black")+
+  #geom_point(data=subset(win.df, outlier="TRUE"),size=0.4,shape=21,stroke=0.4,col="red")+
   geom_text(data=chr_labels,aes(label=chr,x=mid,y=-0.1,col=NA),
             col="black",size=2,angle=0) +  
   geom_vline(xintercept = chr_labels[chr_labels$chr=="20",]$start, linetype="solid", 
@@ -143,13 +148,8 @@ p1 <- ggplot(data=win.df,aes(x=row,y=weighted_fst,col=chr))+
   geom_hline(data=subset(win.df, comparison=="allopatric"),aes(yintercept=0.3600221),linetype="dashed") +
   labs(y=expression(F[ST])) 
 
-png("fst_test.png",width = 9, res = 300, height = 4, units = "in")
-p1
-dev.off()
-
-
 # read in gemma results
-gemma.tmp <- fread("face.assoc.txt")
+gemma.tmp <- fread("data/face.assoc.txt")
 
 # merge w/ mummer data
 gemma.df <- merge(gemma.tmp,sum,by.x="chr",by.y="qName",all.x=T,all.y=F)
@@ -159,6 +159,7 @@ gemma.df$p_wald <- log10(gemma.df$p_wald)
 gemma.df$row <- 1:nrow(gemma.df)
 gemma.sub <- sample_n(gemma.df, 1000000)
 gemma.sub <- arrange(gemma.sub,chrom,refStart)
+gemma.sub$rollmean <- rollmean(gemma.sub$,750000,na.pad = TRUE)
 gemma.sub$label <- 'GEMMA'
 
 # gemma chr labels 
@@ -181,10 +182,8 @@ chr_labels_2$stop[chr_labels_2$chrom=="1B"] <- 0
 chr_labels_2 <- subset(chr_labels_2,!is.na(chrom) & !duplicated(chrom))
 
 # get outlier cutoff
-quantile(gemma.sub$p_wald,0.005, na.rm = TRUE) #0.3600221
+quantile(gemma.sub$p_wald,0.005, na.rm = TRUE) #-2.253437 
 
-# calculate rolling mean
-gemma.sub$rollmean <- rollmean(gemma.sub$p_wald,150,na.pad = TRUE)
 
 # plot gemma
 p2 <- ggplot(data=gemma.sub,aes(x=row,y=p_wald,col=chrom))+
@@ -199,9 +198,9 @@ p2 <- ggplot(data=gemma.sub,aes(x=row,y=p_wald,col=chrom))+
         panel.grid = element_blank(),
         strip.background = element_blank(),
         legend.position="none")+
-  geom_point(size=1,shape=21,alpha=0.8) +
+  geom_point(size=1.1,shape=21) +
   scale_color_manual(values=rep(c("#2b2a27","#a6a5a2"),length(unique(gemma.sub$chrom))/2+1))+
-  geom_line(aes(y=rollmean),lwd=0.5,col="black")+
+  #geom_line(aes(y=rollmean),lwd=0.5,col="black")+
   geom_text(data=chr_labels_2,aes(label=chrom,x=mid,y=1,col=NA),
             col="black",size=2,angle=0) +  
   geom_vline(xintercept = chr_labels_2[chr_labels_2$chrom=="20",]$start, linetype="solid", 
@@ -210,9 +209,6 @@ p2 <- ggplot(data=gemma.sub,aes(x=row,y=p_wald,col=chrom))+
   geom_hline(aes(yintercept=-2.25479),linetype="dashed") +
   labs(y=expression(P[Wald])) 
 
-# write to png together
-png(file="manhattan_gemma.png",res=300,width=8,height=6,units="in")
+png(file="figures/manhattan_gemma.png",res=300,width=9,height=7,units="in")
 plot_grid(p1,p2,ncol=1,rel_heights = c(2,1))  
 dev.off()
-
-
