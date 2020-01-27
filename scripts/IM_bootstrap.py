@@ -37,7 +37,7 @@ top_params=pd.read_csv("/home/gese8011/elinck_bin/demo_inference/IM_modelparams.
 top_params=top_params.sort_values(6,ascending=False)
 poptg=np.array(top_params)[0,:]
 poptg=poptg[range(8)]
-poptg=moments.Inference.optimize(poptg, fs, IM, lower_bound=lower_bound, upper_bound=upper_bound, verbose=True, maxiter=1)
+poptg=moments.Inference.optimize(poptg, fs, IM, lower_bound=lower_bound, upper_bound=upper_bound, verbose=True, maxiter=3)
 
 model=IM(poptg, ns)
 ll_model=moments.Inference.ll_multinom(model,fs)

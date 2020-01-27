@@ -28,11 +28,11 @@ def SC(params, ns):
 upper_bound = [1,10,10,10,10,10,10]
 lower_bound = [1e-4,1e-4,1e-4,1e-4,1e-4,1e-4,1e-4]
 
-for i in range(5):
+for i in range(20):
         poptg=[np.random.uniform(lower_bound[x],upper_bound[x]) for x in range(7)]
-        poptg=moments.Inference.optimize_log(poptg, fs, SC,lower_bound=lower_bound,
+        poptg=moments.Inference.optimize(poptg, fs, SC,lower_bound=lower_bound,
                                              upper_bound=upper_bound,verbose=True,
-                                             maxiter=5)
+                                             maxiter=3)
         model=SC(poptg, ns)
         ll_model=moments.Inference.ll_multinom(model,fs)
         theta = moments.Inference.optimal_sfs_scaling(model, fs)
