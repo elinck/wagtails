@@ -37,8 +37,8 @@ sum <- ddply(dat,
              totalMatch=sum(qLength),
              refStart=min(refStart))
 sum <- arrange(sum,refName,refStart,totalMatch)
-sum.a <- subset(sum,totalMatch>20000)   
-sum.b <- subset(sum,totalMatch<20000)
+sum.a <- subset(sum,totalMatch>50000)   
+sum.b <- subset(sum,totalMatch<50000)
 sum.b$refName <- "NA"
 sum <- rbind.data.frame(sum.a, sum.b)
 sum <- ddply(sum,.(qName),function(e){                                             #get contigs with 1 hit > 1000bp
@@ -92,6 +92,7 @@ colnames(win.df) <- c("scaffold","start","end","n_variants","weighted_fst",
 
 #merge mummer info with windowed stats
 win.df <- merge(win.df,sum,by.x="scaffold",by.y="qName",all.x=T,all.y=F)
+win.df$refName[!win.df$refName %in% chr_order] <- "NA"
 win.df$chr <- factor(win.df$refName,levels=chr_order)
 win.df <- arrange(win.df,chr,refStart)
 sym.tmp <- win.df[win.df$comparison=="sympatric",]
@@ -136,13 +137,15 @@ p1 <- ggplot(data=win.df,aes(x=row,y=weighted_fst,col=chr))+
   scale_color_manual(values=rep(c("#2b2a27","#a6a5a2"),length(unique(win.df$chr))/2+1))+
   geom_point(data=subset(win.df, weighted_fst>0), size=1.1,shape=21)+
   #geom_point(data=subset(win.df, outlier="TRUE"),size=1.2,shape=21,col="red")+
-  geom_line(aes(y=rollmean),lwd=0.5,col="black")+
+  #geom_line(aes(y=rollmean),lwd=0.5,col="black")+
   #geom_segment(data=chr_segments,aes(x=start+50,xend=stop-50,y=Fst,yend=Fst,col=NA),col="black")+
   #geom_point(data=subset(win.df, outlier="TRUE"),size=0.4,shape=21,stroke=0.4,col="red")+
   geom_text(data=chr_labels,aes(label=chr,x=mid,y=-0.1,col=NA),
             col="black",size=2,angle=0) +  
   geom_vline(xintercept = chr_labels[chr_labels$chr=="20",]$start, linetype="solid", 
              color = "yellow", size=3, alpha=0.3) +
+  geom_vline(xintercept = 13750.0, linetype="solid", 
+             color = "blue", size=3, alpha=0.3) +
   geom_hline(aes(yintercept=0)) +
   geom_hline(data=subset(win.df, comparison=="sympatric"),aes(yintercept=0.04650244),linetype="dashed") +
   geom_hline(data=subset(win.df, comparison=="allopatric"),aes(yintercept=0.3600221),linetype="dashed") +
@@ -159,7 +162,6 @@ gemma.df$p_wald <- log10(gemma.df$p_wald)
 gemma.df$row <- 1:nrow(gemma.df)
 gemma.sub <- sample_n(gemma.df, 1000000)
 gemma.sub <- arrange(gemma.sub,chrom,refStart)
-gemma.sub$rollmean <- rollmean(gemma.sub$,750000,na.pad = TRUE)
 gemma.sub$label <- 'GEMMA'
 
 # gemma chr labels 
@@ -184,7 +186,6 @@ chr_labels_2 <- subset(chr_labels_2,!is.na(chrom) & !duplicated(chrom))
 # get outlier cutoff
 quantile(gemma.sub$p_wald,0.005, na.rm = TRUE) #-2.253437 
 
-
 # plot gemma
 p2 <- ggplot(data=gemma.sub,aes(x=row,y=p_wald,col=chrom))+
   facet_grid(label~.)+
@@ -205,10 +206,12 @@ p2 <- ggplot(data=gemma.sub,aes(x=row,y=p_wald,col=chrom))+
             col="black",size=2,angle=0) +  
   geom_vline(xintercept = chr_labels_2[chr_labels_2$chrom=="20",]$start, linetype="solid", 
              color = "yellow", size=3, alpha=0.3) +
+  geom_vline(xintercept = 1345000, linetype="solid", 
+             color = "blue", size=3, alpha=0.3) +
   geom_hline(aes(yintercept=0)) +
   geom_hline(aes(yintercept=-2.25479),linetype="dashed") +
   labs(y=expression(P[Wald])) 
 
-png(file="figures/manhattan_gemma.png",res=300,width=9,height=7,units="in")
+png(file="figures/manhattan_gemma.png",res=300,width=8.5,height=6.5,units="in")
 plot_grid(p1,p2,ncol=1,rel_heights = c(2,1))  
 dev.off()
