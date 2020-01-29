@@ -8,6 +8,7 @@ library(zoo)
 library(ggplot2)
 library(ggrepel)
 library(cowplot)
+library(tidyr)
 
 # set directory
 setwd("~/Dropbox/wagtails/")
@@ -215,3 +216,46 @@ p2 <- ggplot(data=gemma.sub,aes(x=row,y=p_wald,col=chrom))+
 png(file="figures/manhattan_gemma.png",res=300,width=8.5,height=6.5,units="in")
 plot_grid(p1,p2,ncol=1,rel_heights = c(2,1))  
 dev.off()
+
+# load likelihood data
+im <- read.table("~/Dropbox/wagtails/data/IM_realparams.txt") %>% as.data.frame()
+sc <- read.table("~/Dropbox/wagtails/data/SC_realparams.txt") %>% as.data.frame()
+si <- read.table("~/Dropbox/wagtails/data/SI_realparams.txt") %>% as.data.frame()
+colnames(im) <- c("nPer","nAlb","tSplit","m12","m21","ll_model","theta")
+colnames(sc) <- c("nPer","nAlb","t1","t2","m12","m21","ll_model","theta")
+colnames(si) <- c("nPer","nAlb","tSplit","ll_model")
+im.df <- cbind.data.frame(im$ll_model, rep("IM",nrow(im)))
+colnames(im.df) <- c("log_likelihood","model")
+sc.df <- cbind.data.frame(sc$ll_model, rep("SC",nrow(sc)))
+colnames(sc.df) <- c("log_likelihood","model")
+si.df <- cbind.data.frame(si$ll_model, rep("SI",nrow(si)))
+colnames(si.df) <- c("log_likelihood","model")
+mod.df <- rbind.data.frame(im.df,sc.df,si.df)
+
+# plot model comparison
+p3 <- ggplot(mod.df, aes(x=model,y=log_likelihood)) +
+  geom_boxplot() +
+  geom_jitter() +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+# load param bootstraps
+sc_boots <- read.table("~/Dropbox/wagtails/data/SC_realparams_boots.txt") %>% as.data.frame()
+colnames(sc_boots) <- c("nPer","nAlb","t1","t2","m12","m21","ll_model","theta")
+sc_boots.df <- gather(sc_boots)
+colnames(sc_boots.df) <- c("parameter","value")
+  
+p4 <- ggplot(sc_boots.df, aes(x=value)) +
+  geom_density(alpha=0.3,color="black",fill="black") +
+  facet_wrap(~ parameter, scales="free") +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+
+png(file="figures/demographic_inference.png",res=300,width=14,height=7,units="in")
+plot_grid(p3,p4,labels="AUTO",ncol=2,rel_widths = c(1,1.5)) 
+dev.off()
+
+
+
+
+
