@@ -14,16 +14,21 @@ in `scripts/` subdirectory:
 
 `SI.py`:	strict isolation model in `moments`   
 
-`jSFS.py`:  generate joint site frequency spectrum  
+`cline_movement.R`: `HZAM` sims  
+
+`jSFS.py`:  generate joint site frequency spectrum   
 
 `plotting.R`: produce figures for Semenov et al. *in prep*   
 
 in `manuscript/` subdirectory:   
 
-`methods.md`: demographic inference methods description   
+`manuscript.md`: demographic inference + hybrid zone methods and results
 
 in `figures/` subdirectory:   
 
-`demographic_inference.png`:  plots from `moments` output  
+`demographic_inference.pdf`:  plots from `moments` output  
 
 `manhattan_gemma.png`:  manhattan plot + admixture mapping output  
+
+`simulation_results.pdf`:  plots from `HZAM` sims  
+
