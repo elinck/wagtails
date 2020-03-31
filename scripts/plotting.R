@@ -226,36 +226,164 @@ colnames(sc) <- c("nPer","nAlb","t1","t2","m12","m21","ll_model","theta")
 colnames(si) <- c("nPer","nAlb","tSplit","ll_model")
 im.df <- cbind.data.frame(im$ll_model, rep("IM",nrow(im)))
 colnames(im.df) <- c("log_likelihood","model")
+im.df$AIC <- (-2*im.df$log_likelihood) + (2*6)
 sc.df <- cbind.data.frame(sc$ll_model, rep("SC",nrow(sc)))
 colnames(sc.df) <- c("log_likelihood","model")
+sc.df$AIC <- (-2*sc.df$log_likelihood) + (2*7)
 si.df <- cbind.data.frame(si$ll_model, rep("SI",nrow(si)))
 colnames(si.df) <- c("log_likelihood","model")
+si.df$AIC <- (-2*si.df$log_likelihood) + (2*4)
 mod.df <- rbind.data.frame(im.df,sc.df,si.df)
+
+# get best supported model
+best_aic <- mod.df[which.min(mod.df$AIC),]
+best_ll <- mod.df[which.max(mod.df$log_likelihood),]
+
+# get optimization median
+mod_dat_aic <- ddply(mod.df, "model", summarise, median_param=median(AIC))
+mod_dat_ll <- ddply(mod.df, "model", summarise, median_param=median(log_likelihood))
+
 
 # plot model comparison
 p3 <- ggplot(mod.df, aes(x=model,y=log_likelihood)) +
   geom_boxplot() +
-  geom_jitter() +
-  theme_bw() +
-  theme(panel.grid = element_blank())
+  geom_jitter(pch=21) +
+  theme_classic() +
+  theme(panel.grid = element_blank()) +
+  ylab("Log-likelihood") +
+  xlab("Model")
 
 # load param bootstraps
 sc_boots <- read.table("~/Dropbox/wagtails/data/SC_realparams_boots.txt") %>% as.data.frame()
 colnames(sc_boots) <- c("nPer","nAlb","t1","t2","m12","m21","ll_model","theta")
+sc_boots <- sc_boots[,1:6]
+colnames(sc_boots) <- c(expression("N[e~italic(~personata)]"), expression("N[e~italic(~alba)]"), 
+                        "Duration~of~isolation~(years)", "Duration~of~hybridization~(years)",
+                        expression("N[m~italic(~alba-personata)]"),expression("N[m~italic(~personata-alba)]"))
 sc_boots.df <- gather(sc_boots)
 colnames(sc_boots.df) <- c("parameter","value")
+
+# get mean param center
+pdat <- ddply(sc_boots.df, "parameter", summarise, median_param=median(value))
+pdat_sd <- ddply(sc_boots.df, "parameter", summarise, sd_param=sd(value))
+
   
 p4 <- ggplot(sc_boots.df, aes(x=value)) +
-  geom_density(alpha=0.3,color="black",fill="black") +
-  facet_wrap(~ parameter, scales="free") +
-  theme_bw() +
-  theme(panel.grid = element_blank())
+  #geom_histogram() +
+  geom_density(alpha=0.2,color="black",fill="black") +
+  facet_wrap(~ parameter, scales="free",labeller=label_parsed) +
+  theme_classic() +
+  ylab("Density") +
+  xlab(element_blank()) +
+  scale_x_continuous(breaks = scales::pretty_breaks(4), limits = c(0, NA)) +
+  geom_vline(data=pdat, aes(xintercept=median_param),
+             linetype="solid", size=1) +
+  theme(panel.grid = element_blank(),
+        strip.background = element_blank(),
+        panel.background = element_blank(),
+        strip.text = element_text(size=9),
+        axis.text = element_text(size=9))
 
-png(file="figures/demographic_inference.png",res=300,width=14,height=7,units="in")
-plot_grid(p3,p4,labels="AUTO",ncol=2,rel_widths = c(1,1.5)) 
+pdf(file="figures/demographic_inference.pdf",width=12,height=4.5)
+plot_grid(p3,p4,labels="AUTO",ncol=2,rel_widths = c(1,1.75)) 
 dev.off()
 
+# read hybrid zone simulation results
+cline_df <- read.csv("~/Dropbox/wagtails/data/simulation_cline_parameters.csv")
 
+# extract final generation
+cline_500 <- cline_df[cline_df$generation==500,]
+
+# trajectory plot
+p5 <- ggplot(cline_df,aes(x=generation,y=cline_center,col=cline_type,
+                          group=interaction(replicate, cline_type)))+
+  theme_bw()+
+  theme(panel.grid.minor=element_blank(),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=12),
+        strip.background = element_blank(),
+        strip.text=element_text(size=12))+
+  scale_color_manual(values=c("red3","steelblue3"))+
+  xlab("Generations")+ylab("Transect Location")+
+  geom_line(alpha=0.7,size=0.75) +
+  ylim(0,1) +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        panel.grid = element_blank())
+
+# get mean cline center
+cdat <- ddply(cline_500, "cline_type", summarise, mean_center=mean(cline_center))
+
+# plot distribution
+p6 <- ggplot(cline_500,aes(x=cline_center,fill=cline_type)) +
+  theme_bw()+
+  geom_density(alpha=0.5)+
+  scale_fill_manual(values=c("red3","steelblue3")) +
+  geom_vline(data=cdat, aes(xintercept=mean_center,  color=cline_type),
+             linetype="dashed", size=1) +
+  scale_color_manual(values=c("red3","steelblue3")) +
+  xlim(0,1) +
+  coord_flip() +
+  ylab("Density") +
+  theme(legend.position = "bottom",
+        axis.title.y = element_blank(),
+        axis.text = element_text(size=12),
+        axis.title.x = element_text(size=12),
+        legend.title = element_blank(),
+        panel.grid = element_blank())
+
+# load plotting function from hzam
+plot_freqs <-  function(format_output, fit_neutral=FALSE, fit_trait=FALSE){
+  
+  # base plot
+  p <- ggplot(format_output, aes(x=location, y=freqs, color=vars)) +
+    geom_point(size=4,alpha=0.5,pch=21) +
+    theme_bw() +
+    scale_color_manual(values=c("steelblue3","red3"),
+                       breaks=c("neutral","traits"),
+                       labels=c("Neutral loci","Mating trait loci")) +
+    ylab("Hybrid Index") +
+    xlab("Transect Location") +
+    #coord_flip() +
+    theme(axis.title = element_text(size=12),
+          axis.text = element_text(size=12),
+          legend.position = "bottom",
+          legend.title = element_blank(),
+          panel.grid = element_blank())
+  
+  if(fit_neutral==T){
+    model_n <- gam(freqs ~ s(location), data=subset(format_output,vars=="neutral"), quasibinomial(link = "logit"),
+                   method = "P-ML")
+    model_np <- predict_gam(model_n, length_out = 1000)
+    model_np$fit <- inv.logit(model_np$fit)
+    colnames(model_np) <- c("location", "freqs", "se.fit")
+    p <- p + geom_smooth(data = model_np, inherit.aes = FALSE, 
+                         mapping=aes(location, freqs),linetype="solid",col="black",se=FALSE) +
+      labs(linetype="Cline")
+    
+  }
+  if(fit_trait==T){
+    model_t <- gam(freqs ~ s(location), data=subset(format_output,vars=="traits"), quasibinomial(link = "logit"),
+                   method = "P-ML")
+    model_tp <- predict_gam(model_t, length_out = 10000)
+    model_tp$fit <- inv.logit(model_tp$fit)
+    colnames(model_tp) <- c("location", "freqs", "se.fit")
+    p <- p + geom_smooth(data = model_tp, inherit.aes = FALSE, 
+                         mapping=aes(location, freqs),linetype="dashed",col="black",se=FALSE) +
+      labs(linetype="Cline")
+  }
+  return(p)
+}
+
+pop_data <- read.csv("~/Dropbox/wagtails/data/displaced_cline_example.csv")
+
+
+# plot hybrid zone
+p7 <- plot_freqs(pop_data, fit_neutral = TRUE, fit_trait = TRUE)
+
+pdf(file="figures/simulation_results.pdf",width=15,height=6)
+plot_grid(p5,p6,p7, labels="AUTO",ncol=3)
+dev.off()
 
 
 
