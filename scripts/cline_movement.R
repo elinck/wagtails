@@ -4,7 +4,6 @@ library(boot); library(magrittr); library(tidymv);
 library(data.table); library(purrr); library(plyr);
 library(cowplot)
 
-
 # load simulation function (modified from hzam to export cline width paramns)
 run_simulation <- function(neutral_loci=3, pop1_range_limit_left=0, pop1_range_limit_right=0.48, pop2_range_limit_left=0.52,
                            pop2_range_limit_right=1, K_half=800, sigma_comp=0.1, range_limit_left=0,  range_limit_right=1, 
@@ -318,120 +317,273 @@ run_simulation <- function(neutral_loci=3, pop1_range_limit_left=0, pop1_range_l
   return(pop_matrix)
 }
 
+# function to grab cline fit data from final generation
+grab_cline_data <- function(list, nrep=50, ngen=500){
+  tmp <- list()
+  for(i in 1:length(list)){
+    tmp[[i]] <-list[[i]][2]
+  }
+  tmp <- unlist(tmp,recursive=FALSE)
+  tmp <- unlist(tmp,recursive=FALSE)
+  tmp <- Filter(Negate(is.null), tmp)
+  tmp <- lapply(tmp, function(x) return(x[1:2,])) # this drops extra rows from error
+  tmp <- rbindlist(tmp)
+  tmp$replicate <- rep(1:nrep, each=(ngen*2)/5)
+  tmp <- tmp[tmp$generation==500,]
+  return(tmp)
+}
 
-# run fifty replicate simulations
-replicates <- list()
+# function to grab population data
+grab_pop_matrices <- function(list){
+  tmp <- list()
+  for(i in 1:length(list)){
+    tmp[[i]] <-replicates_6[[i]][1]
+  }
+  tmp <- unlist(tmp,recursive=FALSE)
+  tmp <- unlist(tmp,recursive=FALSE)
+  obj <- list()
+  for(x in 1:length(tmp)){
+    print(x)
+    if(x%%2==1){
+      obj[[x]] <- rbind.data.frame(tmp[[x]],tmp[[x+1]])
+    } 
+  }
+  obj <- Filter(Negate(is.null), obj)
+  return(obj)
+}
+
+
+# function to calculate when cline moved left
+left_movement <- function(cline_500){
+  count <- 0
+  for(i in 1:max(cline_500$replicate)){
+    tmp <- cline_500[cline_500$replicate==i,]
+    if(tmp$cline_center[1]>tmp$cline_center[2]){
+      count <- count + 1
+    }
+  }
+  left <- count/max(cline_500$replicate) 
+  return(left)
+}
+
+
+# function to calculate when the mating trait cline was more narrow than the genome-wide cline
+trait_narrower <- function(cline_500){
+  count_2 <- 0
+  for(i in 1:max(cline_500$replicate)){
+    tmp <- cline_500[cline_500$replicate==i,]
+    if(tmp$cline_width[1]>tmp$cline_width[2]){
+      count_2 <- count_2 + 1
+    }
+  }
+  narrow <- count_2/max(cline_500$replicate)
+  return(narrow)
+}
+
+# function to do a wilcox ranked sign test on cline width—"cline  500" = cline output from 500th
+# generation (i.e. "clines_1" etc in this script)
+wilcox_cline_width <- function(cline_500){
+  neut_w <- cline_500[cline_500$cline_type=="Neutral loci",]$cline_width
+  pheno_w <- cline_500[cline_500$cline_type=="Mating trait loci",]$cline_width
+  df <- cbind.data.frame(neut_w, pheno_w)
+  df <- df[!is.infinite(rowSums(df)),]
+  neut_w <- df$neut_w
+  pheno_w <- df$pheno_w
+  wilcox.test(neut_w, pheno_w, conf.int = T, paired=T) # W = 1641, p-value = 0.007102
+}
+
+# function to do a wilcox ranked sign test on cline center
+wilcox_cline_center <- function(cline_500){
+  neut <- cline_500[cline_500$cline_type=="Neutral loci",]$cline_center
+  pheno <- cline_500[cline_500$cline_type=="Mating trait loci",]$cline_center 
+  wilcox.test(neut, pheno, conf.int = T,paired=T) 
+}
+
+cline_stats <- function(cline_500){
+  # mean cline center
+  mean_center <- ddply(cline_500, "cline_type", summarise, mean_center=mean(cline_center))
+  # cline center variance
+  sd_center <- ddply(cline_500, "cline_type", summarise, sd_center=sd(cline_center))
+  # mean cline width
+  mean_width <- ddply(cline_500[cline_500$cline_width<Inf,], "cline_type", summarise, mean_width=mean(cline_width, na.rm = T))
+  # cline width variance
+  sd_width <- ddply(cline_500[cline_500$cline_width<Inf,], "cline_type", summarise, sd_center=sd(cline_width))
+  df <- cbind.data.frame(mean_center, sd_center[,2], mean_width[,2], sd_width[,2])
+  colnames(df) <- c("cline_type", "mean_cline_center", "sd_cline_center", "mean_cline_width", "sd_cline_width")
+  return(df)
+}
+
+# run fifty replicate simulations w/ strong partial dominance, moderate assortative mating
+replicates_1 <- list()
 for(rep in 1:50){
-  replicates[[rep]] <- run_simulation(max_generations = 500)
+  replicates_1[[rep]] <- run_simulation(max_generations = 500, dom_coefficient = 0.75, 
+                                      pref_ratio=0.5, male_trait_loci = 2)
 }
 
-# wrangle population data
-pop_matrices <- lapply(replicates, `[[`, 1)
-
-# extract representative example population matrices
-num_trait_loci <- 1
-#plot_example <- pop_matrices[[47]]
-#plot_example <- pop_matrices[[17]]
-plot_example <- pop_matrices[[44]]
-sim_output_1 <- as.data.frame(plot_example[[1]])
-sim_output_2 <- as.data.frame(plot_example[[2]])
-location <- c(sim_output_1[,1],sim_output_2[,1])
-location <- rep(location, 2)
-neutral_freqs <- as.vector(c(rowMeans(sim_output_1[,(2+(2*num_trait_loci)):ncol(sim_output_1)]), 
-                             rowMeans(sim_output_2[,(2+(2*num_trait_loci)):ncol(sim_output_2)])))
-trait_freqs <- as.vector(c(rowMeans(sim_output_1[,2:(1+(2*num_trait_loci))]), 
-                           rowMeans(sim_output_2[,2:(1+(2*num_trait_loci))])))
-freqs <- c(neutral_freqs, trait_freqs)
-vars <- c(rep("neutral",length(neutral_freqs)), rep("traits",length(trait_freqs)))
-data <- cbind.data.frame(location, freqs, vars)
-write.csv(data,"~/Dropbox/wagtails/data/displaced_cline_example.csv")
-
-# wrangle cline data
-cline_data <- lapply(replicates, `[[`, 2)
-cline_data <- unlist(cline_data,recursive=FALSE)
-cline_filter <- Filter(Negate(is.null), cline_data)
-cline_df <- do.call("rbind", cline_filter)
-cline_df$replicate <- rep(1:50, each=200)
-write.csv(cline_df,"~/Dropbox/wagtails/data/simulation_cline_parameters.csv")
-
-# extract final generation
-cline_500 <- cline_df[cline_df$generation==500,]
-
-# count number of times mating trait cline ended up in recessive pop
-count <- 0
-for(replicate in 1:max(cline_500$replicate)){
-  tmp <- cline_500[cline_500$replicate==replicate,]
-  if(tmp$cline_center[1]>tmp$cline_center[2]){
-    count <- count + 1
-  }
+# strong partial dominance, weak assortative mating
+replicates_2 <- list()
+for(rep in 1:50){
+  replicates_2[[rep]] <- run_simulation(max_generations = 500, dom_coefficient = 0.75, 
+                                        pref_ratio=0.75, male_trait_loci = 2)
 }
-count/max(cline_500$replicate) # 64% of runs ended with mating trait cline moving left (towards recessive pop)
 
-# count number of times mating trait cline ended up in recessive pop
-count_2 <- 0
-for(replicate in 1:max(cline_500$replicate)){
-  tmp <- cline_500[cline_500$replicate==replicate,]
-  if(tmp$cline_width[1]>tmp$cline_width[2]){
-    count_2 <- count_2 + 1
-  }
+# moderate partial dominance, moderate assortative making
+replicates_3 <- list()
+for(rep in 1:50){
+  replicates_3[[rep]] <- run_simulation(max_generations = 500, dom_coefficient = 0.5, 
+                                        pref_ratio=0.5, male_trait_loci = 2)
 }
-count_2/max(cline_500$replicate) # 98% of runs ended with mating trait cline more narrow
 
-# mean cline center
-mean_center <- ddply(cline_500, "cline_type", summarise, mean_center=mean(cline_center))
+# moderate partial dominance, weak assortative mating
+replicates_4 <- list()
+for(rep in 1:50){
+  replicates_4[[rep]] <- run_simulation(max_generations = 500, dom_coefficient = 0.5, 
+                                        pref_ratio=0.75, male_trait_loci = 2)
+}
 
-#         cline_type mean_center
-# 1 Mating trait loci   0.4030753
-# 2      Neutral loci   0.4760450
 
-# cline center variance
-sd_center <- ddply(cline_500, "cline_type", summarise, sd_center=sd(cline_center))
+# strong partial dominance, moderate assortative mating, one locus 
+replicates_5 <- list()
+for(rep in 1:50){
+  replicates_5[[rep]] <- run_simulation(max_generations = 500, dom_coefficient = 0.75, 
+                                        pref_ratio=0.5, male_trait_loci = 1)
+}
 
-#     cline_type sd_center
-# 1 Mating trait loci 0.1452830
-# 2      Neutral loci 0.1360019
+#  strong partial dominance, weak assortative mating, one locus
+replicates_6 <- list()
+for(rep in 1:50){
+  replicates_6[[rep]] <- run_simulation(max_generations = 500, dom_coefficient = 0.75, 
+                                        pref_ratio=0.75, male_trait_loci = 1)
+}
 
-# mean cline width
-mean_width <- ddply(cline_500[cline_500$cline_width<Inf,], "cline_type", summarise, mean_width=mean(cline_width, na.rm = T))
+# moderate partial dominance, moderate assortative mating, one locus
+replicates_7 <- list()
+for(rep in 1:50){
+  replicates_7[[rep]] <- run_simulation(max_generations = 500, dom_coefficient = 0.5, 
+                                        pref_ratio=0.5, male_trait_loci = 1)
+}
 
-#         cline_type mean_width
-# 1 Mating trait loci  0.09505139
-# 2      Neutral loci  0.44965245
+# moderate partial dominance, weak assortative mating, one locus
+replicates_8 <- list()
+for(rep in 1:50){
+  replicates_8[[rep]] <- run_simulation(max_generations = 500, dom_coefficient = 0.5, 
+                                        pref_ratio=0.75, male_trait_loci = 1)
+}
 
-# cline width variance
-sd_width <- ddply(cline_500[cline_500$cline_width<Inf,], "cline_type", summarise, sd_center=sd(cline_width))
+# extract cline data—numbers correlate to simulation
+clines_1 <- grab_cline_data(replicates_1, 50, 500) 
+clines_2 <- grab_cline_data(replicates_2, 50, 500)
+clines_3 <- grab_cline_data(replicates_3, 50, 500) 
+clines_4 <- grab_cline_data(replicates_4, 50, 500) 
+clines_5 <- grab_cline_data(replicates_5, 50, 500) 
+clines_6 <- grab_cline_data(replicates_6, 50, 500) 
+clines_7 <- grab_cline_data(replicates_7, 50, 500)
+clines_8 <- grab_cline_data(replicates_8, 50, 500) 
 
-# cline_type  sd_center
-# 1 Mating trait loci 0.05421949
-# 2      Neutral loci 0.14954128
+# write data to file
+write.csv(clines_1, "~/Dropbox/wagtails/data/cline_500/clines_1.csv")
+write.csv(clines_2, "~/Dropbox/wagtails/data/cline_500/clines_2.csv")
+write.csv(clines_3, "~/Dropbox/wagtails/data/cline_500/clines_3.csv")
+write.csv(clines_4, "~/Dropbox/wagtails/data/cline_500/clines_4.csv")
+write.csv(clines_5, "~/Dropbox/wagtails/data/cline_500/clines_5.csv")
+write.csv(clines_6, "~/Dropbox/wagtails/data/cline_500/clines_6.csv")
+write.csv(clines_7, "~/Dropbox/wagtails/data/cline_500/clines_7.csv")
+write.csv(clines_8, "~/Dropbox/wagtails/data/cline_500/clines_8.csv")
 
-# wilcox ranked sign test: for nonparametric, nonnormal, dependent distributions
-neut <- cline_500[cline_500$cline_type=="Neutral loci",]$cline_center
-pheno <- cline_500[cline_500$cline_type=="Mating trait loci",]$cline_center 
-wilcox.test(neut, pheno, conf.int = T,paired=T) 
+# assess how often mating trait cline moves towards recessive homozygote
+left_movement(clines_1) # 0.58
+left_movement(clines_2) # 0.58
+left_movement(clines_3) # 0.44—meaning rightward movement toward dominant homozygote
+left_movement(clines_4) # 0.52
+left_movement(clines_5) # 0.72
+left_movement(clines_6) # 0.62
+left_movement(clines_7) # 0.52
+left_movement(clines_8) # 0.5
 
-# data:  neut and pheno
-# V = 932, p-value = 0.004539
-# alternative hypothesis: true location shift is not equal to 0
-# 95 percent confidence interval:
-#   0.02685437 0.12565345
-# sample estimates:
-#   (pseudo)median 
-# 0.07860535 
+# assess how often mating trait clines are narrower than genome-wide cline
+trait_narrower(clines_1) # 0.6
+trait_narrower(clines_2) # 0.66
+trait_narrower(clines_3) # 0.62
+trait_narrower(clines_4) # 0.64
+trait_narrower(clines_5) # 1
+trait_narrower(clines_6) # 0.96
+trait_narrower(clines_7) # 0.98
+trait_narrower(clines_8) # 0.94
 
-neut_w <- cline_500[cline_500$cline_type=="Neutral loci",]$cline_width
-pheno_w <- cline_500[cline_500$cline_type=="Mating trait loci",]$cline_width
-wilcox.test(neut_w, pheno_w, conf.int = T, paired=T) # W = 1641, p-value = 0.007102
+# cline statistics
+cline_stats(clines_1)
 
-# Wilcoxon signed rank test with continuity correction
-# 
-# data:  neut_w and pheno_w
-# V = 1272, p-value = 9.008e-10
-# alternative hypothesis: true location shift is not equal to 0
-# 0 percent confidence interval:
-#   NaN NaN
-# sample estimates:
-#   midrange 
-# Inf 
+#          cline_type mean_cline_center sd_cline_center mean_cline_width sd_cline_width
+# 1      Neutral loci         0.5154811       0.1275102        0.4759701      0.1619554
+# 2 Mating trait loci         0.4190672       0.3073818        0.2249119      0.1041093
 
+# cline statistics
+cline_stats(clines_2)
+
+#          cline_type mean_cline_center sd_cline_center mean_cline_width sd_cline_width
+# 1      Neutral loci         0.4890879       0.1054418        0.4241969      0.1452947
+# 2 Mating trait loci         0.4401698       0.2122520        0.2710710      0.1376481
+
+cline_stats(clines_3)
+
+#          cline_type mean_cline_center sd_cline_center mean_cline_width sd_cline_width
+# 1      Neutral loci         0.5139281       0.1120579       0.47226796      0.1813014
+# 2 Mating trait loci         0.5076960       0.2919870       0.07299187      0.3423503
+
+cline_stats(clines_4)
+
+#          cline_type mean_cline_center sd_cline_center mean_cline_width sd_cline_width
+# 1      Neutral loci         0.5137647       0.1352037        0.4411549      0.1468363
+# 2 Mating trait loci         0.5063718       0.2486510        0.2756875      0.1464122
+
+cline_stats(clines_5)
+#         cline_type mean_cline_center sd_cline_center mean_cline_width sd_cline_width
+# 1      Neutral loci         0.5081300       0.1164983       0.43856613     0.14122698
+# 2 Mating trait loci         0.4281591       0.1575376       0.09935873     0.05010819
+
+cline_stats(clines_6)
+#          cline_type mean_cline_center sd_cline_center mean_cline_width sd_cline_width
+# 1      Neutral loci         0.4797799       0.1446467        0.4395531     0.13654915
+# 2 Mating trait loci         0.4272766       0.1717500        0.1218575     0.07373175
+
+cline_stats(clines_7)
+#         cline_type mean_cline_center sd_cline_center mean_cline_width sd_cline_width
+#1      Neutral loci         0.4965957       0.1122563       0.43854900     0.16226342
+#2 Mating trait loci         0.4920439       0.1555197       0.09399186     0.04581947
+
+cline_stats(clines_8)
+#           cline_type mean_cline_center sd_cline_center mean_cline_width sd_cline_width
+# 1      Neutral loci         0.4973354       0.1157160        0.4307719      0.1530064
+# 2 Mating trait loci         0.4868155       0.1718089        0.1208503      0.1216942
+
+
+# see whether distribution of cline centers differs across simulations
+wilcox_cline_center(clines_1) # p-value = 0.04892
+wilcox_cline_center(clines_2) # p-value = 0.1645
+wilcox_cline_center(clines_3) # p-value = 0.9923
+wilcox_cline_center(clines_4) # p-value = 0.7137
+wilcox_cline_center(clines_5) # p-value = 0.0006325
+wilcox_cline_center(clines_6) # p-value = 0.06382
+wilcox_cline_center(clines_7) # p-value = 0.8168
+wilcox_cline_center(clines_8) # p-value = 0.7574
+
+# see whether distribution of cline widths differs across simulations
+wilcox_cline_width(clines_1) # p-value = 1.276e-07
+wilcox_cline_width(clines_2) # p-value = 0.0001594
+wilcox_cline_width(clines_3) # p-value = 4.712e-07
+wilcox_cline_width(clines_4) # p-value = 0.0004383
+wilcox_cline_width(clines_5) # p-value = 1.819e-12
+wilcox_cline_width(clines_6) # p-value = 1.819e-12
+wilcox_cline_width(clines_7) # p-value = 2.274e-13
+wilcox_cline_width(clines_8) # p-value = 1.819e-12
+
+# extract population matrices
+pop_matrix_1 <- grab_pop_matrices(replicates_1)
+pop_matrix_2 <- grab_pop_matrices(replicates_2)
+pop_matrix_3 <- grab_pop_matrices(replicates_3)
+pop_matrix_4 <- grab_pop_matrices(replicates_4)
+pop_matrix_5 <- grab_pop_matrices(replicates_5)
+pop_matrix_6 <- grab_pop_matrices(replicates_6)
+pop_matrix_7 <- grab_pop_matrices(replicates_7)
+pop_matrix_8 <- grab_pop_matrices(replicates_8)
 
